@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Financeiro</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="dashboard-header">
+        <h1>Minhas Finanças</h1>
+        <button id="logout-btn" class="btn btn-danger">Sair</button>
+    </header>
+
+    <div class="dashboard-container">
+        <!-- Left Column: Input Form and Total -->
+        <div class="left-col">
+            <div class="card">
+                <h3>Novo Investimento</h3>
+                <form id="add-entry-form">
+                    <div class="form-group">
+                        <label for="bank-name">Nome do Banco</label>
+                        <input type="text" id="bank-name" placeholder="Ex: Nubank, Inter..." required>
+                    </div>
+                    <div class="form-group">
+                        <label for="investment-type">Tipo de Investimento</label>
+                        <select id="investment-type" required>
+                            <option value="">Selecione...</option>
+                            <option value="Conta Corrente">Conta Corrente</option>
+                            <option value="Poupança">Poupança</option>
+                            <option value="CDB">CDB</option>
+                            <option value="LCI/LCA">LCI/LCA</option>
+                            <option value="Ações">Ações</option>
+                            <option value="FIIs">FIIs</option>
+                            <option value="Tesouro Direto">Tesouro Direto</option>
+                            <option value="Criptomoedas">Criptomoedas</option>
+                            <option value="Outros">Outros</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="transaction-date">Data da Aplicação</label>
+                        <input type="date" id="transaction-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="value">Valor (R$)</label>
+                        <input type="number" id="value" step="0.01" min="0" placeholder="0.00" required>
+                    </div>
+                    <button type="submit" class="btn">Adicionar</button>
+                </form>
+                <div id="form-message" class="message"></div>
+            </div>
+
+            <div class="card">
+                <h3>Saldo Total</h3>
+                <div id="total-balance" class="total-balance">R$ 0,00</div>
+            </div>
+        </div>
+
+        <!-- Right Column: Charts and Table -->
+        <div class="right-col">
+            <div class="card" style="position: relative;">
+                <h3>Distribuição de Investimentos</h3>
+                
+                <!-- Date Filter -->
+                <div class="date-filter-container">
+                    <select id="chart-date-filter">
+                        <option value="all">Todos os Dias</option>
+                        <!-- Dates will be populated via JS -->
+                    </select>
+                </div>
+
+                <div style="height: 300px; display: flex; justify-content: center;">
+                    <canvas id="investmentsChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card" style="position: relative;">
+                <h3>Registros</h3>
+                
+                <!-- Table Date Filter -->
+                <div class="date-filter-container">
+                    <select id="table-date-filter">
+                        <option value="all">Todos os Dias</option>
+                        <!-- Dates will be populated via JS -->
+                    </select>
+                </div>
+
+                <div class="table-responsive">
+                    <table id="data-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Banco</th>
+                                <th>Tipo</th>
+                                <th>Valor</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Data will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
