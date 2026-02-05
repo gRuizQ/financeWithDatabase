@@ -1,115 +1,167 @@
-import json
-import os
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from database import Base, SessionLocal
 import uuid
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+import logging
 
-DATA_DIR = 'data'
-USERS_FILE = os.path.join(DATA_DIR, 'users.json')
-BANK_DATA_FILE = os.path.join(DATA_DIR, 'bank_data.json')
+# Configuração de Logging para Auditoria
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def _ensure_files_exist():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-    if not os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'w') as f:
-            json.dump([], f)
-    if not os.path.exists(BANK_DATA_FILE):
-        with open(BANK_DATA_FILE, 'w') as f:
-            json.dump([], f)
+def generate_uuid():
+    return str(uuid.uuid4())
 
-_ensure_files_exist()
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bank_entries = relationship("BankEntry", back_populates="user", cascade="all, delete-orphan")
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class BankEntry(Base):
+    __tablename__ = 'bank_entries'
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
+    bank_name = Column(String(100), nullable=False)
+    investment_type = Column(String(50), nullable=False)
+    value = Column(Float, nullable=False)
+    transaction_date = Column(String(10), nullable=False) # YYYY-MM-DD
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="bank_entries")
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'bank_name': self.bank_name,
+            'investment_type': self.investment_type,
+            'value': self.value,
+            'transaction_date': self.transaction_date,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+# --- Service/Manager Layer (Adapter to replace old JSON managers) ---
 
 class UserManager:
     @staticmethod
-    def get_all_users():
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-
-    @staticmethod
-    def save_users(users):
-        with open(USERS_FILE, 'w') as f:
-            json.dump(users, f, indent=4)
-
-    @staticmethod
     def create_user(email, password):
-        users = UserManager.get_all_users()
-        if any(u['email'] == email for u in users):
-            return None  # User already exists
-        
-        new_user = {
-            'id': str(uuid.uuid4()),
-            'email': email,
-            'password_hash': generate_password_hash(password),
-            'created_at': datetime.now().isoformat()
-        }
-        users.append(new_user)
-        UserManager.save_users(users)
-        return new_user
+        session = SessionLocal()
+        try:
+            # Check existing
+            existing = session.query(User).filter(User.email == email).first()
+            if existing:
+                return None
+            
+            new_user = User(
+                email=email,
+                password_hash=generate_password_hash(password)
+            )
+            session.add(new_user)
+            session.commit()
+            logger.info(f"AUDIT: User created successfully - Email: {email}")
+            return new_user.to_dict()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"AUDIT: Error creating user {email}: {e}")
+            return None
+        finally:
+            session.close()
 
     @staticmethod
     def authenticate(email, password):
-        users = UserManager.get_all_users()
-        user = next((u for u in users if u['email'] == email), None)
-        if user and check_password_hash(user['password_hash'], password):
-            return user
-        return None
+        session = SessionLocal()
+        try:
+            user = session.query(User).filter(User.email == email).first()
+            if user and check_password_hash(user['password_hash'] if isinstance(user, dict) else user.password_hash, password):
+                logger.info(f"AUDIT: User authenticated successfully - Email: {email}")
+                return user.to_dict()
+            logger.warning(f"AUDIT: Failed authentication attempt - Email: {email}")
+            return None
+        finally:
+            session.close()
 
 class BankDataManager:
     @staticmethod
-    def get_all_data():
-        with open(BANK_DATA_FILE, 'r') as f:
-            return json.load(f)
-
-    @staticmethod
-    def save_data(data):
-        with open(BANK_DATA_FILE, 'w') as f:
-            json.dump(data, f, indent=4)
+    def get_user_entries(user_id):
+        session = SessionLocal()
+        try:
+            entries = session.query(BankEntry).filter(BankEntry.user_id == user_id).order_by(BankEntry.transaction_date.desc()).all()
+            return [e.to_dict() for e in entries]
+        finally:
+            session.close()
 
     @staticmethod
     def add_entry(user_id, bank_name, investment_type, value, transaction_date):
-        data = BankDataManager.get_all_data()
-        new_entry = {
-            'id': str(uuid.uuid4()),
-            'user_id': user_id,
-            'bank_name': bank_name,
-            'investment_type': investment_type,
-            'value': float(value),
-            'transaction_date': transaction_date,
-            'created_at': datetime.now().isoformat()
-        }
-        data.append(new_entry)
-        BankDataManager.save_data(data)
-        return new_entry
-
-    @staticmethod
-    def get_user_entries(user_id):
-        data = BankDataManager.get_all_data()
-        user_entries = [entry for entry in data if entry['user_id'] == user_id]
-        # Ensure transaction_date exists for legacy records
-        for entry in user_entries:
-            if 'transaction_date' not in entry:
-                entry['transaction_date'] = entry.get('created_at', datetime.now().isoformat()).split('T')[0]
-        return user_entries
+        session = SessionLocal()
+        try:
+            new_entry = BankEntry(
+                user_id=user_id,
+                bank_name=bank_name,
+                investment_type=investment_type,
+                value=float(value),
+                transaction_date=transaction_date
+            )
+            session.add(new_entry)
+            session.commit()
+            logger.info(f"AUDIT: Bank entry added - User: {user_id}, Bank: {bank_name}, Value: {value}")
+            return new_entry.to_dict()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"AUDIT: Error adding entry for user {user_id}: {e}")
+            return None
+        finally:
+            session.close()
 
     @staticmethod
     def delete_entry(user_id, entry_id):
-        data = BankDataManager.get_all_data()
-        initial_len = len(data)
-        # Filter out the entry that matches ID and User ID (security check)
-        data = [d for d in data if not (d['id'] == entry_id and d['user_id'] == user_id)]
-        
-        if len(data) < initial_len:
-            BankDataManager.save_data(data)
-            return True
-        return False
+        session = SessionLocal()
+        try:
+            entry = session.query(BankEntry).filter(BankEntry.id == entry_id, BankEntry.user_id == user_id).first()
+            if entry:
+                session.delete(entry)
+                session.commit()
+                logger.info(f"AUDIT: Bank entry deleted - User: {user_id}, Entry: {entry_id}")
+                return True
+            logger.warning(f"AUDIT: Failed delete attempt (not found) - User: {user_id}, Entry: {entry_id}")
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"AUDIT: Error deleting entry {entry_id}: {e}")
+            return False
+        finally:
+            session.close()
 
     @staticmethod
     def update_entry(user_id, entry_id, new_value):
-        data = BankDataManager.get_all_data()
-        for entry in data:
-            if entry['id'] == entry_id and entry['user_id'] == user_id:
-                entry['value'] = float(new_value)
-                BankDataManager.save_data(data)
+        session = SessionLocal()
+        try:
+            entry = session.query(BankEntry).filter(BankEntry.id == entry_id, BankEntry.user_id == user_id).first()
+            if entry:
+                old_value = entry.value
+                entry.value = float(new_value)
+                session.commit()
+                logger.info(f"AUDIT: Bank entry updated - User: {user_id}, Entry: {entry_id}, Old: {old_value}, New: {new_value}")
                 return True
-        return False
+            logger.warning(f"AUDIT: Failed update attempt (not found) - User: {user_id}, Entry: {entry_id}")
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"AUDIT: Error updating entry {entry_id}: {e}")
+            return False
+        finally:
+            session.close()

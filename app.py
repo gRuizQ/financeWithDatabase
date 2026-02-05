@@ -1,11 +1,15 @@
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from models import UserManager, BankDataManager
+from database import init_db
 from functools import wraps
 from datetime import datetime
 import os
 
 app = Flask(__name__)
-app.secret_key = 'dev_secret_key_change_in_production'  # In a real app, use environment variable
+app.secret_key = os.getenv('SECRET_KEY', 'dev_secret_key_change_in_production')
+
+# Initialize DB tables (SQLAlchemy)
+init_db()
 
 # Decorator for login required
 def login_required(f):

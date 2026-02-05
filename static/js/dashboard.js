@@ -299,7 +299,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Convert to array and sort descending (newest first)
-        const sortedDates = Array.from(dates).sort().reverse();
+        const sortedDates = Array.from(dates).sort((a, b) => {
+            const dateA = new Date(a);
+            const dateB = new Date(b);
+            return dateB - dateA;
+        });
 
         // Helper to populate a select element
         const populateSelect = (selectElement) => {
@@ -333,8 +337,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatDate(dateString) {
         if (!dateString) return '-';
-        const [year, month, day] = dateString.split('-');
-        return `${day}/${month}/${year}`;
+
+        // Check for YYYY-MM-DD format (standard ISO date part)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+            const [year, month, day] = dateString.split('-');
+            return `${day}/${month}/${year}`;
+        }
+
+        // Try parsing other formats (e.g., GMT strings)
+        const date = new Date(dateString);
+        if (!isNaN(date.getTime())) {
+            // Use UTC to avoid timezone shifts since the input likely has time info or is GMT
+            const day = String(date.getUTCDate()).padStart(2, '0');
+            const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+            const year = date.getUTCFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        return dateString;
     }
 
     function formatCurrency(value) {
